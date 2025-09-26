@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>p5.js Sketch</title>
+    <style>
+        body { margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Syne+Mono&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.3/p5.min.js"></script>
+</head>
+<body>
+    <script>
+
+// Global Black Hole parameters - Feel free to tweak these values!
+let blackHoleSwallowRadius = 1.1; // Radius in cell units for swallowing other pawns (base size)
+let BLACK_HOLE_MAX_SIZE_MULTIPLIER = 10; // Black hole wins if its size reaches this value (e.g., 8 * default size 1 = 8)
+
+// Black hole internal grain animation parameters
+let bhGrainCount = 150; // Base number of grain points per black hole (scales with size)
+let bhGrainSpeed = 0.0005; // Speed of the internal grain motion (lower = slower) - This animates the noise field itself
+let bhGrainSpinSpeed = 0.001; // Speed of the internal grain's rotational spin (lower = slower spin)
+let bhGrainDensity = 0.03; // Controls how tightly packed the noise field is for grain position (lower = smoother, larger swirls)
+let bhGrainStrength = 0.02; // How much the grain particles deviate (percentage of radius)
+let bhGrainSize = 1.5; // Diameter of individual grain particles
+let bhGrainAlpha = 150; // Alpha for more visible swirling dots
+
+// Black hole wiggle parameters
+let bhWiggleOrbitSpeed = 0.08; // Speed of the black hole's primary orbital wiggle motion (radians per frame)
+let bhWiggleNoiseSpeed = 0.01; // Speed for the *noise* component of the wiggle animation
+let bhWiggleMagnitude = 0.15; // Base wiggle magnitude (in cell units). Scales with BH size. - REDUCED BY 50%
+
+// Grid dot blinking parameters
+let gridDotMinBrightness = 100; // Minimum brightness for a sparkling dot
+let gridDotMaxBrightness = 255; // Maximum brightness for a sparkling dot
+let gridDotBlinkSpeed = 0.05; // Speed of brightness/size oscillation (higher = faster blink)
+let gridDotMinSize = 1; // Minimum diameter for a blinking dot
+let gridDotMaxSize = 5; // Maximum diameter for a blinking dot
+
+// Black hole effect on grid dots parameters
+let bhDotPullRadiusMultiplier = 2.0; // How many 'cell units' a black hole's size extends its pull radius for grid dots
+let bhDotPullStrength = 0.08; // How strongly dots are pulled (larger value = stronger pull)
+let bhDotShrinkMagnitude = 0.8; // How much dots shrink (0.0 = no shrink, 1.0 = full shrink when at max influence)
+
+// Grid dot colors for starry night effect
+let gridStarColors; // Array to hold the chosen colors
+let gridDotColorChoices; // 2D array to store a color index for each dot
+
+
+// Game state variables
+let BOARD_SIZE = 10;
+let WIN_CONDITION = 5;
+let board; // 2D array to store {type: 'X' | 'O', size: number, rotation: number, wiggleCurrentAngle: number} or null
+let currentPlayer; // 'X' or 'O'
+let gameOver; // Flag for internal game logic conditions
+let winner; // 'X', 'O', or null for a draw
+let cellSize; // Size of each cell on the board
+let computerThinking = false; // Flag to prevent multiple computer moves or human input during computer's turn
+let computerMoveDelay = 1000; // Milliseconds for computer's "thinking" time
+let bhSizeWinPending = false; // Flag to indicate if 'O' has won by size, but animations are still pending.
+
+// Main game state to control scene flow
+let gameState = 'INTRO'; // 'INTRO', 'PLAYING', 'GAME_OVER'
+
+
+// Store black hole positions and their current sizes/rotations/wiggle for efficient iteration
+let blackHolePositions = []; // [{row, col, size, rotation, wiggleXOffset, wiggleYOffset}]
+
+// Store pawns currently being sucked into a black hole for animation
+// [{row, col, type, originalSize, bhRow, bhCol, startTime, startX, startY, targetX, targetY}]
+let swallowingPawns = [];
+let suckingAnimationDuration = 600; // Milliseconds for a pawn to be sucked into a black hole
+
+// 2D array for grid dot animation phases
+let gridDotAnimationPhase; // Stores a phase for each dot for its blinking animation
+
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  textFont('Syne Mono'); // Set font to Syne Mono for all text (requires external loading)
+  // Initialize the vibrant colors for the grid dots (static, so can be outside initializeGame)
+  gridStarColors = [
+    color(255, 255, 255),  // White
+    color(255, 255, 255),  // White
+    color(0, 0, 255),      // Blue
+    color(255, 255, 255)   // White
+  ];
+  initializeGame(); // Initialize the board and grid dots, but don't start gameplay
+  gameState = 'INTRO'; // Set initial state to intro
+}
+
+/**
+ * Initializes or resets the game state.
+ * Sets up the empty board, current player, and game status.
+ * This function prepares the board but does NOT start the game flow (e.g., computer's first move).
+ */
+function initializeGame() {
+  board = [];
+  for (let r = 0; r < BOARD_SIZE; r++) {
+    board[r] = [];
+    for (let c = 0; c < BOARD_SIZE; c++) {
+      board[r][c] = null; // Empty cell
+    }
+  }
+  currentPlayer = 'O'; // Black Hole (O) plays first by default on reset
+  gameOver = false;
+  winner = null;
+  computerThinking = false;
+  blackHolePositions = [];
+  swallowingPawns = [];
+  bhSizeWinPending = false;
+
+  gridDotAnimationPhase = Array(BOARD_SIZE + 1).fill(0).map(() => Array(BOARD_SIZE + 1).fill(0));
+  gridDotColorChoices = Array(BOARD_SIZE + 1).fill(0).map(() => Array(BOARD_SIZE + 1).fill(0));
+  for (let r = 0; r <= BOARD_SIZE; r++) {
+    for (let c = 0; c <= BOARD_SIZE; c++) {
+      gridDotAnimationPhase[r][c] = random(TWO_PI);
+      gridDotColorChoices[r][c] = floor(random(gridStarColors.length));
+    }
+  }
+
+  let boardDisplaySize = min(width, height) * 0.9;
+  cellSize = boardDisplaySize / BOARD_SIZE;
+
+  // IMPORTANT: Do NOT trigger computerMove here. It's handled by gameState transitions in mousePressed or draw.
+}
+
+function draw() {
+  background(0); // Black background
+
+  // Calculate board offset to center it on the canvas
+  let offsetX = (width - BOARD_SIZE * cellSize) / 2;
+  let offsetY = (height - BOARD_SIZE * cellSize) / 2;
+
+  push(); // Isolate transformations for the board drawing
+  translate(offsetX, offsetY); // Move origin to center the board
+
+  // === Game State Logic ===
+  switch (gameState) {
+    case 'INTRO':
+      drawBoard(); // Show the sparkling grid
+      textAlign(CENTER, CENTER); // Center text both horizontally and vertically
+      textSize(24);
+      fill(255);
+      text("Play your best tic-tac-toe game and try to avoid the black holes.", BOARD_SIZE * cellSize / 2, BOARD_SIZE * cellSize / 2 - 40);
+      textSize(16);
+      text("Press anywhere to continue.", BOARD_SIZE * cellSize / 2, BOARD_SIZE * cellSize / 2 + 10);
+      break;
+
+    case 'PLAYING':
+      updateBlackHoles(); // Black holes update their state
+
+      // Check if a black hole win is pending and all swallowing animations are complete
+      if (bhSizeWinPending && swallowingPawns.length === 0) {
+        gameOver = true; // The actual game-over flag
+        gameState = 'GAME_OVER'; // Transition game state
+        bhSizeWinPending = false; // Reset flag
+        console.log("Black hole win finalized: All swallowing animations complete.");
+      }
+
+      drawBoard();
+      drawMarks();
+      drawSwallowingAnimations(); // Continue drawing animations as they complete
+
+      // Display current player's turn message
+      textAlign(CENTER, TOP); // Top aligned for current player message
+      textSize(16);
+      fill(255);
+      if (currentPlayer === 'X') {
+        fill(255);
+        text(`Your Turn (✦)`, BOARD_SIZE * cellSize / 2, -25);
+      } else { // Current player is 'O' (computer)
+        fill(255);
+        if (computerThinking) {
+          text(`A black hole is arising...`, BOARD_SIZE * cellSize / 2, -25);
+        } else {
+          text(`Computer (O)'s Turn`, BOARD_SIZE * cellSize / 2, -25);
+        }
+      }
+      break;
+
+    case 'GAME_OVER':
+      // Even in GAME_OVER, we want to show the final board state and potentially ongoing swallowing animations
+      drawBoard();
+      drawMarks(); // This will now draw the winning BH in the center if winner is 'O'
+      drawSwallowingAnimations();
+
+      // Display game status (winner or draw)
+      textAlign(CENTER, TOP); // Messages will be top-aligned from their calculated Y
+      fill(255);
+
+      const boardCenterY = (BOARD_SIZE * cellSize) / 1.02;
+      const boardCenterX = (BOARD_SIZE * cellSize) / 2;
+
+      if (winner === 'O') {
+        const line1 = "You are consumed by Sagittarius A,";
+        const line2 = "the supermassive black hole at our galaxy’s center,";
+        const line3 = "26,000 light-years from Earth.";
+        const clickPrompt = "Click to Play Again";
+
+        const messageTextSize = 16;
+        const clickTextSize = 12;
+        const lineSpacing = messageTextSize * 1.2; // Spacing between tops of main message lines
+        const gapBeforeClickPrompt = 20; // Gap between last main message line and click prompt
+
+        // Calculate total height of the message block
+        const totalMessageBlockHeight =
+          messageTextSize + // Height of line 1
+          (lineSpacing - messageTextSize) + messageTextSize + // Height of line 2 + space for it
+          (lineSpacing - messageTextSize) + messageTextSize + // Height of line 3 + space for it
+          gapBeforeClickPrompt + // Gap
+          clickTextSize; // Height of click prompt
+
+        // Calculate the starting Y for the entire block to be centered
+        let startY = boardCenterY - totalMessageBlockHeight / 2;
+
+        textSize(messageTextSize);
+        text(line1, boardCenterX, startY);
+        text(line2, boardCenterX, startY + lineSpacing);
+        text(line3, boardCenterX, startY + 2 * lineSpacing);
+
+        textSize(clickTextSize);
+        text(clickPrompt, boardCenterX, startY + 3 * lineSpacing + gapBeforeClickPrompt);
+
+      } else if (winner === 'X') {
+        const winMessage = `${winner} Wins!`;
+        const clickPrompt = "Click to Play Again";
+
+        const winMessageTextSize = 32;
+        const clickTextSize = 20;
+        const gapBetweenMessages = 20;
+
+        const totalMessageBlockHeight = winMessageTextSize + gapBetweenMessages + clickTextSize;
+        let startY = boardCenterY - totalMessageBlockHeight / 2;
+
+        textSize(winMessageTextSize);
+        text(winMessage, boardCenterX, startY);
+        textSize(clickTextSize);
+        text(clickPrompt, boardCenterX, startY + winMessageTextSize + gapBetweenMessages);
+
+      } else { // It's a draw
+        const drawMessage = "It's a Draw!";
+        const clickPrompt = "Click to Play Again";
+
+        const drawMessageTextSize = 32;
+        const clickTextSize = 20;
+        const gapBetweenMessages = 20;
+
+        const totalMessageBlockHeight = drawMessageTextSize + gapBetweenMessages + clickTextSize;
+        let startY = boardCenterY - totalMessageBlockHeight / 2;
+
+        textSize(drawMessageTextSize);
+        text(drawMessage, boardCenterX, startY);
+        textSize(clickTextSize);
+        text(clickPrompt, boardCenterX, startY + drawMessageTextSize + gapBetweenMessages);
+      }
+      break;
+  }
+
+  pop(); // Restore original transformations
+}
+
+/**
+ * Draws the grid as small white dots at the corners of each cell, with sparkling effect.
+ */
+function drawBoard() {
+  noStroke(); // No outline for dots
+
+  for (let r = 0; r <= BOARD_SIZE; r++) {
+    for (let c = 0; c <= BOARD_SIZE; c++) {
+      let x = c * cellSize;
+      let y = r * cellSize;
+
+      // Update animation phase for this dot
+      gridDotAnimationPhase[r][c] = (gridDotAnimationPhase[r][c] + gridDotBlinkSpeed) % TWO_PI;
+
+      // Use sine wave for smooth brightness and size oscillation for base size
+      let phase = gridDotAnimationPhase[r][c];
+      let baseBrightness = map(sin(phase), -1, 1, gridDotMinBrightness, gridDotMaxBrightness);
+      let baseSize = map(sin(phase), -1, 1, gridDotMinSize, gridDotMaxSize);
+
+      // Get the dot's base color
+      let baseColor = gridStarColors[gridDotColorChoices[r][c]]; // Use assigned color
+
+      // Initialize influenced position and size
+      let influencedX = x;
+      let influencedY = y;
+      let influencedSize = baseSize;
+      let influencedBrightness = baseBrightness;
+
+      let totalPullX = 0;
+      let totalPullY = 0;
+      let currentMaxShrinkRatio = 1.0; // 1.0 means no shrinkage, smaller means more shrinkage
+
+      // Calculate influence from all active black holes
+      // Only apply pull effects if in PLAYING or GAME_OVER state (not INTRO)
+      if (gameState === 'PLAYING' || gameState === 'GAME_OVER') {
+        for (let bh of blackHolePositions) {
+          // Calculate the black hole's current center, including its wiggle offset
+          let bhCenterX = bh.col * cellSize + cellSize / 2 + bh.wiggleXOffset;
+          let bhCenterY = bh.row * cellSize + cellSize / 2 + bh.wiggleYOffset;
+
+          // The radius within which this black hole pulls dots
+          let bhEffectivePullRadius = cellSize * bhDotPullRadiusMultiplier * bh.size;
+
+          let distance = dist(x, y, bhCenterX, bhCenterY);
+
+          if (distance < bhEffectivePullRadius && distance > 0) { // Only apply if within radius and not exactly on center
+            // Influence factor: 1.0 at BH center, 0.0 at pull radius edge
+            let influence = 1 - (distance / bhEffectivePullRadius);
+            influence = constrain(influence, 0, 1); // Ensure it's between 0 and 1
+
+            // Calculate pull vector
+            let angleToBH = atan2(bhCenterY - y, bhCenterX - x);
+            let pullMagnitude = bhDotPullStrength * bh.size * influence * cellSize; // Scale pull by BH size and influence, and cell size
+            totalPullX += cos(angleToBH) * pullMagnitude;
+            totalPullY += sin(angleToBH) * pullMagnitude;
+
+            // Calculate shrinkage
+            // The shrink ratio will go from 1.0 (no shrink) down to (1.0 - bhDotShrinkMagnitude) at max influence
+            let shrinkRatio = 1.0 - (bhDotShrinkMagnitude * influence * (bh.size / BLACK_HOLE_MAX_SIZE_MULTIPLIER)); // Scale shrinkage by BH size and its influence
+            currentMaxShrinkRatio = min(currentMaxShrinkRatio, shrinkRatio); // Apply strongest shrinkage
+          }
+        }
+      }
+
+      // Apply total pull and shrinkage
+      influencedX += totalPullX;
+      influencedY += totalPullY;
+      influencedSize *= currentMaxShrinkRatio;
+      // Also dim the dots as they shrink/get pulled, based on average brightness and shrinkage
+      influencedBrightness = baseBrightness * currentMaxShrinkRatio;
+
+      // Set the color, applying the influenced brightness to the base color's alpha
+      let finalColor = color(red(baseColor), green(baseColor), blue(baseColor), influencedBrightness); // Use chosen color
+      fill(finalColor);
+      ellipse(influencedX, influencedY, influencedSize, influencedSize); // Apply influenced size and position
+    }
+  }
+}
+
+/**
+ * Draws 'X' (white '✦') and 'O' (black holes with swirling grain, rotation, wiggle, and black outline) marks on the board.
+ * In GAME_OVER with 'O' win, only the winning black hole is drawn in the center.
+ */
+function drawMarks() {
+  textAlign(CENTER, CENTER);
+
+  // Calculate board center for positioning the winning black hole
+  const boardCenterX = (BOARD_SIZE * cellSize) / 2;
+  const boardCenterY = (BOARD_SIZE * cellSize) / 2;
+
+  // Special drawing logic for 'O' win in GAME_OVER state
+  if (gameState === 'GAME_OVER' && winner === 'O') {
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        let cellContent = board[r][c];
+        // Find the single active black hole (all other swallowed BHs have size 0)
+        if (cellContent !== null && cellContent.type === 'O' && cellContent.size > 0) {
+          let bhSize = cellContent.size;
+          let visualDiameter = cellSize * 0.7 * bhSize;
+          let visualRadius = visualDiameter / 2;
+
+          push();
+          translate(boardCenterX, boardCenterY); // Translate to the absolute center of the board
+          // No wiggle or rotation applied to the overall black hole for a static central presence
+
+          noStroke(); // The winning black hole should be a solid black mass without an outline
+          fill(0); // Solid black fill
+          ellipse(0, 0, visualDiameter, visualDiameter);
+
+          // Draw swirling grain texture inside
+          noStroke();
+          fill(255, bhGrainAlpha);
+
+          let numPoints = floor(bhGrainCount * bhSize);
+          let currentTime = millis();
+          let grainSpinOffset = currentTime * bhGrainSpinSpeed;
+
+          for (let i = 0; i < numPoints; i++) {
+            let baseAngle = (i * 137.5) * PI / 180;
+            let baseRadius = map(sqrt(i), 0, sqrt(numPoints), visualRadius * 0.1, visualRadius * 0.9);
+            let spinningAngle = baseAngle + grainSpinOffset;
+            let px_static = baseRadius * cos(spinningAngle);
+            let py_static = baseRadius * sin(spinningAngle);
+            let noiseX = (px_static * bhGrainDensity) + (currentTime * bhGrainSpeed);
+            let noiseY = (py_static * bhGrainDensity) + (currentTime * bhGrainSpeed);
+            let swirlX = px_static + map(noise(noiseX, noiseY, currentTime * bhGrainSpeed), 0, 1, -visualRadius * bhGrainStrength, visualRadius * bhGrainStrength);
+            let swirlY = py_static + map(noise(noiseX + 100, noiseY + 100, currentTime * bhGrainSpeed), 0, 1, -visualRadius * bhGrainStrength, visualRadius * bhGrainStrength);
+            let distFromCenter = dist(0, 0, swirlX, swirlY);
+            if (distFromCenter < visualRadius - bhGrainSize / 2) {
+                 ellipse(swirlX, swirlY, bhGrainSize, bhGrainSize);
+            }
+          }
+          pop();
+          return; // Exit function after drawing the winning black hole
+        }
+      }
+    }
+  }
+  // Normal drawing logic for 'PLAYING' state, or 'GAME_OVER' for 'X' win/draw
+  else {
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        let cellContent = board[r][c];
+        if (cellContent !== null) {
+          let x = c * cellSize + cellSize / 2;
+          let y = r * cellSize + cellSize / 2;
+
+          if (cellContent.type === 'X') {
+            textSize(cellSize * 0.6);
+            noStroke();
+            fill(255);
+            text('✦', x, y);
+          } else if (cellContent.type === 'O') {
+            let bhSize = cellContent.size;
+            if (typeof bhSize !== 'number' || isNaN(bhSize) || bhSize <= 0) {
+              continue; // Skip drawing if size is invalid or 0
+            }
+
+            let visualDiameter = cellSize * 0.7 * bhSize;
+            let visualRadius = visualDiameter / 2;
+
+            push();
+            translate(x + cellContent.wiggleXOffset, y + cellContent.wiggleYOffset);
+            rotate(radians(cellContent.rotation));
+            stroke(0); // Black outline for black holes
+            strokeWeight(1);
+            fill(0); // Solid black fill
+            ellipse(0, 0, visualDiameter, visualDiameter);
+            noStroke();
+            fill(255, bhGrainAlpha);
+
+            let numPoints = floor(bhGrainCount * bhSize);
+            let currentTime = millis();
+            let grainSpinOffset = currentTime * bhGrainSpinSpeed;
+
+            for (let i = 0; i < numPoints; i++) {
+              let baseAngle = (i * 137.5) * PI / 180;
+              let baseRadius = map(sqrt(i), 0, sqrt(numPoints), visualRadius * 0.1, visualRadius * 0.9);
+              let spinningAngle = baseAngle + grainSpinOffset;
+              let px_static = baseRadius * cos(spinningAngle);
+              let py_static = baseRadius * sin(spinningAngle);
+              let noiseX = (px_static * bhGrainDensity) + (currentTime * bhGrainSpeed);
+              let noiseY = (py_static * bhGrainDensity) + (currentTime * bhGrainSpeed);
+              let swirlX = px_static + map(noise(noiseX, noiseY, currentTime * bhGrainSpeed), 0, 1, -visualRadius * bhGrainStrength, visualRadius * bhGrainStrength);
+              let swirlY = py_static + map(noise(noiseX + 100, noiseY + 100, currentTime * bhGrainSpeed), 0, 1, -visualRadius * bhGrainStrength, visualRadius * bhGrainStrength);
+              let distFromCenter = dist(0, 0, swirlX, swirlY);
+              if (distFromCenter < visualRadius - bhGrainSize / 2) {
+                   ellipse(swirlX, swirlY, bhGrainSize, bhGrainSize);
+              }
+            }
+            pop();
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Draws pawns that are currently being sucked into black holes, fading and shrinking.
+ */
+function drawSwallowingAnimations() {
+  for (let i = swallowingPawns.length - 1; i >= 0; i--) {
+    let pawn = swallowingPawns[i];
+    let progress = (millis() - pawn.startTime) / suckingAnimationDuration;
+
+    if (progress >= 1) {
+      swallowingPawns.splice(i, 1); // Remove completed animation
+      continue;
+    }
+
+    // Interpolate position and size
+    let currentX = lerp(pawn.startX, pawn.targetX, progress);
+    let currentY = lerp(pawn.startY, pawn.targetY, progress);
+    // Interpolate from its original scaled size down to 0
+    let currentSize = lerp(cellSize * 0.6 * pawn.originalSize, 0, progress);
+
+    push();
+    textAlign(CENTER, CENTER);
+    if (pawn.type === 'X') {
+      noStroke();
+      fill(255, 255, 255, lerp(255, 0, progress)); // White, fade out
+      textSize(currentSize);
+      text('✦', currentX, currentY); // Changed to '✦'
+    } else if (pawn.type === 'O') {
+      // Draw as a shrinking, fading black circle, without outline for animation
+      noStroke();
+      fill(0, 0, 0, lerp(255, 0, progress)); // Black, fade out
+      ellipse(currentX, currentY, currentSize * 1.1, currentSize * 1.1);
+    }
+    pop();
+  }
+}
+
+/**
+ * Updates the black hole effects: checks for and swallows nearby pawns, and handles rotation/wiggle.
+ * Only runs if the game is in the 'PLAYING' state and no black hole win is pending.
+ */
+function updateBlackHoles() {
+  // If game is already over (or win pending), no need to update black holes
+  if (gameOver || bhSizeWinPending) return;
+
+  // First, re-populate blackHolePositions from the current board state
+  blackHolePositions = [];
+  let noiseTimeOffset = millis() * bhWiggleNoiseSpeed; // Base time for wiggle noise
+  for (let r = 0; r < BOARD_SIZE; r++) {
+    for (let c = 0; c < BOARD_SIZE; c++) {
+      let cellContent = board[r][c];
+      // Only active black holes with size > 0 are considered for swallowing and animation.
+      if (cellContent !== null && cellContent.type === 'O' && cellContent.size > 0) {
+        // Increment rotation for drawing next frame
+        cellContent.rotation = (cellContent.rotation + 2) % 360; // Rotate by 2 degrees per frame, loop 0-360
+
+        // Increment wiggle angle for orbital motion
+        cellContent.wiggleCurrentAngle = (cellContent.wiggleCurrentAngle + bhWiggleOrbitSpeed) % TWO_PI;
+
+        // Calculate wiggle offset for this black hole
+        // Noise for slight perturbations in magnitude and angle
+        let noiseFactorMag = noise(noiseTimeOffset, r, c);
+        let noiseFactorAng = noise(noiseTimeOffset + 500, r * 10, c * 10);
+
+        // Scale wiggle magnitude by BH size and perturb with noise
+        let currentWiggleMagnitude = bhWiggleMagnitude * cellSize * cellContent.size * map(noiseFactorMag, 0, 1, 0.5, 1.5);
+        // Perturb the current orbital angle with noise
+        let perturbedAngle = cellContent.wiggleCurrentAngle + map(noiseFactorAng, 0, 1, -PI/8, PI/8);
+
+        cellContent.wiggleXOffset = cos(perturbedAngle) * currentWiggleMagnitude;
+        cellContent.wiggleYOffset = sin(perturbedAngle) * currentWiggleMagnitude;
+
+        blackHolePositions.push({
+          row: r,
+          col: c,
+          size: cellContent.size,
+          rotation: cellContent.rotation,
+          wiggleXOffset: cellContent.wiggleXOffset,
+          wiggleYOffset: cellContent.wiggleYOffset
+        });
+      }
+    }
+  }
+
+  // Set to keep track of pawns that are already being swallowed or have been marked for swallowing
+  let activeSwallows = new Set();
+  for (let pawn of swallowingPawns) {
+    activeSwallows.add(`${pawn.row},${pawn.col}`);
+  }
+
+  for (let bh of blackHolePositions) { // 'bh' is the *swallowing* black hole currently being checked
+    // If a win is pending, we should prevent *new* swallows from being initiated
+    if (bhSizeWinPending) return;
+
+    let bhX = bh.col * cellSize + cellSize / 2;
+    let bhY = bh.row * cellSize + cellSize / 2;
+    // Black hole's swallow radius scales with its current size
+    let effectiveSwallowRadius = blackHoleSwallowRadius * cellSize * bh.size;
+
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        // If a win is pending, we should prevent *new* swallows from being initiated
+        if (bhSizeWinPending) return;
+
+        // Don't check the black hole itself for swallowing
+        if (r === bh.row && c === bh.col) continue;
+
+        // Don't check if this pawn is already being swallowed or is already gone
+        let pawnKey = `${r},${c}`;
+        if (activeSwallows.has(pawnKey) || board[r][c] === null || (board[r][c].type === 'O' && board[r][c].size <= 0)) continue;
+
+        let cellContent = board[r][c]; // This is the pawn being checked for swallowing
+        if (cellContent !== null) { // If there's a pawn here
+          let pawnX = c * cellSize + cellSize / 2;
+          let pawnY = r * cellSize + cellSize / 2;
+
+          let distance = dist(bhX, bhY, pawnX, pawnY);
+          if (distance < effectiveSwallowRadius) {
+            // Initiate swallowing animation for the pawn
+            swallowingPawns.push({
+              row: r,
+              col: c,
+              type: cellContent.type,
+              originalSize: cellContent.size || 1, // Default size 1 for X or if O size not set
+              bhRow: bh.row,
+              bhCol: bh.col, // Store the position of the black hole doing the swallowing
+              startTime: millis(),
+              startX: pawnX,
+              startY: pawnY,
+              targetX: bhX,
+              targetY: bhY,
+            });
+            activeSwallows.add(pawnKey); // Mark as actively swallowed
+
+            // Now, handle the actual game state change and black hole growth:
+            if (cellContent.type === 'O') {
+              // If another black hole is swallowed, increase the size of the *swallowing* black hole
+              let swallowingBH_onBoard = board[bh.row][bh.col];
+              if (swallowingBH_onBoard && swallowingBH_onBoard.type === 'O' &&
+                  typeof swallowingBH_onBoard.size === 'number' && !isNaN(swallowingBH_onBoard.size) &&
+                  typeof cellContent.size === 'number' && !isNaN(cellContent.size)) {
+                swallowingBH_onBoard.size += cellContent.size; // Increment size by swallowed BH's size
+                console.log(`Black hole at (${bh.row},${bh.col}) absorbed BH at (${r},${c}), new size: ${swallowingBH_onBoard.size}`);
+
+                // Check for NEW LOSE STATE: If a black hole reaches or exceeds BLACK_HOLE_MAX_SIZE_MULTIPLIER, 'O' wins.
+                if (swallowingBH_onBoard.size >= BLACK_HOLE_MAX_SIZE_MULTIPLIER) {
+                    winner = 'O'; // Black hole player (O) wins
+                    bhSizeWinPending = true; // Set pending flag, allow animations to finish.
+                    console.log(`Black hole at (${bh.row},${bh.col}) grew to size ${swallowingBH_onBoard.size} and triggered 'O' win pending.`);
+                    // Do NOT set gameOver = true here. It will be set after animations complete in draw().
+                    // Do NOT clear swallowingPawns here. It needs to complete its animation.
+                }
+              }
+              // Set the swallowed black hole's size to 0, effectively removing it from play but keeping object in board array
+              board[r][c].size = 0;
+            } else { // It's an 'X' pawn
+              board[r][c] = null; // Remove the swallowed 'X' pawn from the board
+            }
+          }
+        }
+      }
+    }
+  }
+  // After potential swallowing, check for draw (win checks only happen on new pawn placement)
+  // Only check for draw if the game hasn't already ended by a black hole growing too large (bhSizeWinPending not set).
+  if (!gameOver && !bhSizeWinPending && checkDraw()) {
+    gameOver = true;
+    winner = null;
+    gameState = 'GAME_OVER'; // Set game state for a draw
+  }
+}
+
+
+/**
+ * Handles mouse clicks for placing marks and resetting the game.
+ * Now controls transitions between game states.
+ */
+function mousePressed() {
+  if (gameState === 'INTRO') {
+    gameState = 'PLAYING';
+    // If computer (O) is the current player, trigger its first move
+    if (currentPlayer === 'O') { // No need to check !gameOver here, as it's a fresh start
+      computerThinking = true;
+      setTimeout(computerMove, computerMoveDelay);
+    }
+    return;
+  }
+
+  if (gameState === 'GAME_OVER') {
+    initializeGame(); // Reset board and data
+    gameState = 'PLAYING'; // Go straight to playing after reset
+    // If computer (O) is the current player, trigger its first move
+    if (currentPlayer === 'O') {
+      computerThinking = true;
+      setTimeout(computerMove, computerMoveDelay);
+    }
+    return;
+  }
+
+  // Only proceed with game logic if in PLAYING state
+  if (gameState === 'PLAYING') {
+    // Prevent human clicks during computer's turn or while computer is "thinking"
+    // Also prevent clicks if a black hole win is pending (game is practically over)
+    if (currentPlayer === 'O' || computerThinking || bhSizeWinPending) {
+      return;
+    }
+
+    // Calculate board offset to translate mouse coordinates
+    let offsetX = (width - BOARD_SIZE * cellSize) / 2;
+    let offsetY = (height - BOARD_SIZE * cellSize) / 2;
+
+    // Adjust mouse coordinates relative to the board's top-left corner
+    let mouseXOnBoard = mouseX - offsetX;
+    let mouseYOnBoard = mouseY - offsetY;
+
+    // Check if the click was within the board boundaries
+    if (mouseXOnBoard > 0 && mouseXOnBoard < BOARD_SIZE * cellSize &&
+      mouseYOnBoard > 0 && mouseYOnBoard < BOARD_SIZE * cellSize) {
+
+      let col = floor(mouseXOnBoard / cellSize);
+      let row = floor(mouseYOnBoard / cellSize);
+
+      // Ensure the clicked cell is valid and empty (null or size 0 black hole)
+      if (row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE &&
+         (board[row][col] === null || (board[row][col].type === 'O' && board[row][col].size <= 0))) {
+        // Human player makes a move
+        executeMove(row, col, currentPlayer);
+
+        // If game is not over, and it's now 'O's turn, trigger computer's move
+        // Check gameState explicitly here because executeMove might set gameOver=true and thus gameState='GAME_OVER'
+        if (gameState === 'PLAYING' && currentPlayer === 'O' && !bhSizeWinPending) {
+          computerThinking = true; // Set flag that computer is thinking
+          setTimeout(computerMove, computerMoveDelay);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Executes a move for the given player at the specified row and column.
+ * Checks for win/draw conditions and switches players.
+ * @param {number} row - The row to place the mark.
+ * @param {number} col - The column to place the mark.
+ * @param {string} player - The player making the move ('X' or 'O').
+ */
+function executeMove(row, col, player) {
+  if (player === 'X') {
+    board[row][col] = {
+      type: 'X',
+      size: 1
+    };
+  } else if (player === 'O') {
+    board[row][col] = {
+      type: 'O',
+      size: 1,
+      rotation: random(360), // Start black hole with a random rotation angle
+      wiggleCurrentAngle: random(TWO_PI) // Initialize wiggle orbital angle randomly
+    };
+  }
+
+
+  if (checkLineSegment(row, col, player, WIN_CONDITION)) {
+    console.log(`${player} wins at (${row}, ${col})!`); // DIAGNOSTIC LOG
+    winner = player;
+    gameOver = true;
+    gameState = 'GAME_OVER'; // NEW: Set game state here
+  } else if (checkDraw()) {
+    gameOver = true;
+    gameState = 'GAME_OVER'; // NEW: Set game state here
+  } else {
+    currentPlayer = (currentPlayer === 'X') ? 'O' : 'X'; // Switch player
+  }
+}
+
+/**
+ * Implements the computer's move (Player 'O').
+ * Prioritizes winning moves, then blocking moves, then aggressive threats,
+ * then defensive blocks, then center preference, then random.
+ * NOTE: This AI does NOT currently account for black hole swallowing effects
+ * or growth when making its decisions, which can lead to interesting, chaotic plays!
+ */
+function computerMove() {
+  // Prevent computer move if game is over or a win is pending (practically over)
+  if (gameState !== 'PLAYING') {
+    computerThinking = false;
+    return;
+  }
+
+  let emptyCells = [];
+  for (let r = 0; r < BOARD_SIZE; r++) {
+    for (let c = 0; c < BOARD_SIZE; c++) {
+      // Consider a cell empty if it's null OR contains a black hole with size 0
+      if (board[r][c] === null || (board[r][c].type === 'O' && board[r][c].size <= 0)) {
+        emptyCells.push({
+          row: r,
+          col: c
+        });
+      }
+    }
+  }
+
+  if (emptyCells.length === 0) {
+    gameOver = true;
+    winner = null;
+    gameState = 'GAME_OVER'; // NEW: Set game state here if no empty cells (draw)
+    computerThinking = false;
+    return;
+  }
+
+  let chosenMove = null;
+
+  // Strategy 1: Find an immediate winning move for 'O'
+  for (let i = 0; i < emptyCells.length; i++) {
+    let {
+      row,
+      col
+    } = emptyCells[i];
+    let originalContent = board[row][col]; // Store original to restore
+    board[row][col] = { type: 'O', size: 1, rotation: 0, wiggleCurrentAngle: 0 }; // Temporarily place 'O'
+    if (checkLineSegment(row, col, 'O', WIN_CONDITION)) {
+      chosenMove = { row, col };
+    }
+    board[row][col] = originalContent; // Undo temporary placement
+    if (chosenMove) break;
+  }
+  if (chosenMove) {
+    executeMove(chosenMove.row, chosenMove.col, 'O');
+    computerThinking = false;
+    return;
+  }
+
+  // Strategy 2: Find an immediate winning move for 'X' to block
+  for (let i = 0; i < emptyCells.length; i++) {
+    let {
+      row,
+      col
+    } = emptyCells[i];
+    let originalContent = board[row][col];
+    board[row][col] = { type: 'X', size: 1 }; // Temporarily place 'X'
+    if (checkLineSegment(row, col, 'X', WIN_CONDITION)) {
+      chosenMove = { row, col };
+    }
+    board[row][col] = originalContent; // Undo temporary placement
+    if (chosenMove) break;
+  }
+  if (chosenMove) {
+    executeMove(chosenMove.row, chosenMove.col, 'O');
+    computerThinking = false;
+    return;
+  }
+
+  // Strategy 3: Create a (WIN_CONDITION - 1) threat for 'O' (e.g., a 4-in-a-row)
+  for (let i = 0; i < emptyCells.length; i++) {
+    let {
+      row,
+      col
+    } = emptyCells[i];
+    let originalContent = board[row][col];
+    board[row][col] = { type: 'O', size: 1, rotation: 0, wiggleCurrentAngle: 0 }; // Temporarily place 'O'
+    if (checkLineSegment(row, col, 'O', WIN_CONDITION - 1)) {
+      chosenMove = { row, col };
+    }
+    board[row][col] = originalContent; // Undo temporary placement
+    if (chosenMove) break;
+  }
+  if (chosenMove) {
+    executeMove(chosenMove.row, chosenMove.col, 'O');
+    computerThinking = false;
+    return;
+  }
+
+  // Strategy 4: Block a (WIN_CONDITION - 1) threat for 'X' (e.g., an opponent's 4-in-a-row)
+  for (let i = 0; i < emptyCells.length; i++) {
+    let {
+      row,
+      col
+    } = emptyCells[i];
+    let originalContent = board[row][col];
+    board[row][col] = { type: 'X', size: 1 }; // Temporarily place 'X'
+    if (checkLineSegment(row, col, 'X', WIN_CONDITION - 1)) {
+      chosenMove = { row, col };
+    }
+    board[row][col] = originalContent; // Undo temporary placement
+    if (chosenMove) break;
+  }
+  if (chosenMove) {
+    executeMove(chosenMove.row, chosenMove.col, 'O');
+    computerThinking = false;
+    return;
+  }
+
+  // Strategy 5: Prefer moves closer to the center (if no immediate threats/wins)
+  let centerR = floor((BOARD_SIZE - 1) / 2);
+  let centerC = floor((BOARD_SIZE - 1) / 2);
+  let minDistanceSq = Infinity;
+  let centerMoves = [];
+
+  for (let i = 0; i < emptyCells.length; i++) {
+    let {
+      row,
+      col
+    } = emptyCells[i];
+    let distSq = (row - centerR) * (row - centerR) + (col - centerC) * (col - centerC);
+    if (distSq < minDistanceSq) {
+      minDistanceSq = distSq;
+      centerMoves = [{
+        row,
+        col
+      }];
+    } else if (distSq === minDistanceSq) {
+      centerMoves.push({
+        row,
+        col
+      });
+    }
+  }
+
+  if (centerMoves.length > 0) {
+    chosenMove = centerMoves[floor(random(centerMoves.length))];
+  }
+
+  // Strategy 6: Fallback to a random move if no strategic move found
+  if (chosenMove === null && emptyCells.length > 0) {
+    let randomIndex = floor(random(emptyCells.length));
+    chosenMove = emptyCells[randomIndex];
+  }
+
+  // Execute the chosen move
+  if (chosenMove) {
+    executeMove(chosenMove.row, chosenMove.col, 'O');
+  } else {
+    gameOver = true;
+    winner = null;
+    gameState = 'GAME_OVER'; // NEW: Set game state here if no move found (draw)
+    console.warn("Computer couldn't find a move, game declared a draw.");
+  }
+
+  // Only reset computerThinking if the game is still playing, otherwise keep it for the transition
+  if (gameState === 'PLAYING') {
+      computerThinking = false; // Computer finished its turn
+  }
+}
+
+/**
+ * Checks if placing a mark at (r, c) by 'player' results in 'targetLength'
+ * consecutive marks in any of the four directions (horizontal, vertical, two diagonals).
+ * @param {number} r - The row of the last move.
+ * @param {number} c - The column of the last move.
+ * @param {string} player - The player ('X' or 'O').
+ * @param {number} targetLength - The number of consecutive marks to check for.
+ * @returns {boolean} True if 'targetLength' consecutive marks are found, false otherwise.
+ */
+function checkLineSegment(r, c, player, targetLength) {
+  // Define directions: horizontal, vertical, and two diagonals
+  let directions = [
+    [0, 1], // Horizontal
+    [1, 0], // Vertical
+    [1, 1], // Diagonal (top-left to bottom-right)
+    [1, -1] // Diagonal (top-right to bottom-left)
+  ];
+
+  for (let i = 0; i < directions.length; i++) {
+    let dr = directions[i][0];
+    let dc = directions[i][1];
+
+    let count = 1; // Count the current player's mark at (r, c)
+
+    // Check in one direction
+    for (let step = 1; step < targetLength; step++) {
+      let nr = r + dr * step;
+      let nc = c + dc * step;
+      // Check if within bounds, not null, correct player type, and visible (size > 0 for black holes)
+      if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+        board[nr][nc] !== null && board[nr][nc].type === player &&
+        (board[nr][nc].type === 'X' || board[nr][nc].size > 0)) {
+        count++;
+      } else {
+        break;
+      }
+    }
+
+    // Check in the opposite direction
+    for (let step = 1; step < targetLength; step++) {
+      let nr = r - dr * step;
+      let nc = c - dc * step;
+      // Check if within bounds, not null, correct player type, and visible (size > 0 for black holes)
+      if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+        board[nr][nc] !== null && board[nr][nc].type === player &&
+        (board[nr][nc].type === 'X' || board[nr][nc].size > 0)) {
+        count++;
+      } else {
+        break;
+      }
+    }
+
+    if (count >= targetLength) {
+      return true;
+    }
+  }
+  return false;
+}
+
+
+/**
+ * Checks if the board is full, indicating a draw if no winner has been declared.
+ * Considers cells with size 0 black holes as empty.
+ * @returns {boolean} True if the board is full, false otherwise.
+ */
+function checkDraw() {
+  for (let r = 0; r < BOARD_SIZE; r++) {
+    for (let c = 0; c < BOARD_SIZE; c++) {
+      // A cell is considered "empty" if it's null, or if it's a black hole with size 0
+      if (board[r][c] === null || (board[r][c].type === 'O' && board[r][c].size <= 0)) {
+        return false; // Found an empty cell, so it's not a draw yet
+      }
+    }
+  }
+  return true; // All active cells are filled, and no winner means it's a draw
+}
+
+/**
+ * Adjusts canvas and cell size if the window is resized, ensuring responsiveness.
+ */
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  // Re-initialize game to re-draw everything correctly if size changes mid-game
+  // Only re-initialize fully if not currently in the intro scene, to keep the intro message centered on resize.
+  if (gameState !== 'INTRO') {
+    initializeGame(); // This resets the board to empty and re-calculates cellSize
+    // After re-initialization, the game should be in the playing state again,
+    // and if the computer was thinking, re-trigger its move.
+    // However, if we were in GAME_OVER, `initializeGame` will have reset winner and gameOver.
+    // If the intent is to resume playing from the exact state (not reset), that would be more complex.
+    // For now, assume resize during PLAYING state should re-trigger AI if it was 'O's turn.
+    if (gameState === 'PLAYING' && currentPlayer === 'O' && !gameOver) { // Check !gameOver in case a win was pending
+      computerThinking = true;
+      setTimeout(computerMove, computerMoveDelay);
+    } else if (gameState === 'GAME_OVER') {
+      // If we resized during GAME_OVER, the game has been reset by initializeGame().
+      // It will transition back to PLAYING on next click, as per mousePressed logic.
+      // So no need to re-trigger computerMove here if it was GAME_OVER.
+    }
+
+  } else {
+    // If in intro, just recalculate cellSize and redraw the board to center the message.
+    let boardDisplaySize = min(width, height) * 0.9;
+    cellSize = boardDisplaySize / BOARD_SIZE;
+    // The message drawing in INTRO state already uses board dimensions, so it will re-center.
+  }
+}
+
+    </script>
+</body>
+</html>
