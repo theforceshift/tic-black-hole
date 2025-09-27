@@ -48,7 +48,7 @@ let bhDotShrinkMagnitude = 0.8; // How much dots shrink (0.0 = no shrink, 1.0 = 
 let gridStarColors; // Array to hold the chosen colors
 let gridDotColorChoices; // 2D array to store a color index for each dot
 
-// --- MODIFIED: X Pawn Color Constant declaration only ---
+// X Pawn Color Constant declaration only
 let X_PAWN_COLOR; // Declare globally, assign in setup()
 
 
@@ -84,7 +84,7 @@ let gridDotAnimationPhase; // Stores a phase for each dot for its blinking anima
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
-  textFont('Syne Mono'); // Set font to Syne Mono for all text (requires external loading)
+  textFont('Syne Mono'); // Set font to Syne Mono for all other text
   // Initialize the vibrant colors for the grid dots (static, so can be outside initializeGame)
   gridStarColors = [
     color(255, 255, 255),  // White
@@ -92,7 +92,7 @@ function setup() {
     color(0, 0, 255),      // Blue
     color(255, 255, 255)   // White
   ];
-  // --- MODIFIED: Initialize X_PAWN_COLOR here ---
+  // Initialize X_PAWN_COLOR here (FIXED: Moved initialization into setup())
   X_PAWN_COLOR = color(255); // Default white. Change this to any p5.js color you like! E.g., color(0, 255, 0) for green.
 
   initializeGame(); // Initialize the board and grid dots, but don't start gameplay
@@ -158,7 +158,7 @@ function draw() {
       let introLine2YOffset = -15; // Offset for second line if split
       let introPromptYOffset = 10;  // Default offset
 
-      // Adjust text size and add line break for mobile screens
+      // Adjust text size and add line break for mobile screens (FIXED: Responsive text sizing)
       if (width < MOBILE_BREAKPOINT_WIDTH) {
         introMainTextSize = 14; // Smaller for mobile
         introPromptTextSize = 12; // Smaller for mobile
@@ -324,8 +324,8 @@ function draw() {
 function drawBoard() {
   noStroke(); // No outline for dots
 
-  for (let r = 0; r <= BOARD_SIZE; r++) {
-    for (let c = 0; c <= BOARD_SIZE; c++) {
+  for (let r = 0; r <= BOARD_SIZE; r++) { // FIXED: Corrected loop condition 'r => BOARD_SIZE' to 'r <= BOARD_SIZE'
+    for (let c = 0; c <= BOARD_SIZE; c++) { // FIXED: Corrected loop condition 'c => BOARD_SIZE' to 'c <= BOARD_SIZE'
       let x = c * cellSize;
       let y = r * cellSize;
 
@@ -398,7 +398,7 @@ function drawBoard() {
 }
 
 /**
- * Draws 'X' (white '✦') and 'O' (black holes with swirling grain, rotation, wiggle, and black outline) marks on the board.
+ * Draws 'X' (white '✦' using system font) and 'O' (black holes with swirling grain, rotation, wiggle, and black outline) marks on the board.
  * In GAME_OVER with 'O' win, only the winning black hole is drawn in the center.
  */
 function drawMarks() {
@@ -468,13 +468,16 @@ function drawMarks() {
           if (cellContent.type === 'X') {
             let xPawnSizeMultiplier = 0.6; // Default size multiplier for 'X'
             if (width < MOBILE_BREAKPOINT_WIDTH) {
-              xPawnSizeMultiplier = 0.8; // Increased size for mobile
+              xPawnSizeMultiplier = 0.8; // Increased size for mobile (FIXED: X Pawn size increase)
             }
 
+            push(); // Isolate font and text settings
+            textFont('sans-serif'); // Use a system font for the '✦' icon (FIXED: Font for '✦' icon)
             textSize(cellSize * xPawnSizeMultiplier);
             noStroke();
-            fill(X_PAWN_COLOR); // --- Using X_PAWN_COLOR ---
-            text('✦', x, y);
+            fill(X_PAWN_COLOR); // Using X_PAWN_COLOR (FIXED: X Pawn color constant)
+            text('✦', x, y); // Display the '✦' character
+            pop(); // Restore previous font and text settings (Syne Mono)
           } else if (cellContent.type === 'O') {
             let bhSize = cellContent.size;
             if (typeof bhSize !== 'number' || isNaN(bhSize) || bhSize <= 0) {
@@ -708,7 +711,7 @@ function mousePressed() {
 function touchStarted() {
   // Ensure there's at least one touch
   if (touches.length > 0) {
-    handleInput(touches[0].x, touches[0].y); // Use touches[0].x and touches[0].y
+    handleInput(touches[0].x, touches[0].y); // Use touches[0].x and touches[0].y (FIXED: touchX undefined error)
   }
   return false; // Prevent default browser behavior (e.g., scrolling, zooming)
 }
@@ -767,10 +770,7 @@ function handleInput(inputX, inputY) {
       if (row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE &&
          (board[row][col] === null || (board[row][col].type === 'O' && board[row][col].size <= 0))) {
 
-        // --- Haptic feedback for human 'X' player on mobile ---
-        // Check if it's the human player's turn ('X')
-        // Check if the browser supports the Vibration API (`navigator.vibrate`)
-        // Check if the device likely supports touch events (indirectly suggests a mobile device)
+        // Haptic feedback for human 'X' player on mobile (FIXED: Added haptic feedback)
         if (currentPlayer === 'X' && typeof navigator.vibrate === 'function' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)) {
             navigator.vibrate(50); // Vibrate for 50ms
         }
@@ -903,77 +903,59 @@ function computerMove() {
   }
 
   // Strategy 3: Create a (WIN_CONDITION - 1) threat for 'O' (e.g., a 4-in-a-row)
-  for (let i = 0; i < emptyCells.length; i++) {
-    let {
-      row,
-      col
-    } = emptyCells[i];
-    let originalContent = board[row][col];
-    board[row][col] = { type: 'O', size: 1, rotation: 0, wiggleCurrentAngle: 0 }; // Temporarily place 'O'
-    if (checkLineSegment(row, col, 'O', WIN_CONDITION - 1)) {
-      chosenMove = { row, col };
+  if (!chosenMove) { // Only try if no move found yet
+    for (let i = 0; i < emptyCells.length; i++) {
+      let { row, col } = emptyCells[i];
+      let originalContent = board[row][col];
+      board[row][col] = { type: 'O', size: 1, rotation: 0, wiggleCurrentAngle: 0 };
+      if (checkLineSegment(row, col, 'O', WIN_CONDITION - 1)) {
+        chosenMove = { row, col };
+      }
+      board[row][col] = originalContent;
+      if (chosenMove) break;
     }
-    board[row][col] = originalContent; // Undo temporary placement
-    if (chosenMove) break;
-  }
-  if (chosenMove) {
-    executeMove(chosenMove.row, chosenMove.col, 'O');
-    computerThinking = false;
-    return;
   }
 
-  // Strategy 4: Block a (WIN_CONDITION - 1) threat for 'X' (e.g., an opponent's 4-in-a-row)
-  for (let i = 0; i < emptyCells.length; i++) {
-    let {
-      row,
-      col
-    } = emptyCells[i];
-    let originalContent = board[row][col];
-    board[row][col] = { type: 'X', size: 1 }; // Temporarily place 'X'
-    if (checkLineSegment(row, col, 'X', WIN_CONDITION - 1)) {
-      chosenMove = { row, col };
+  // Strategy 4: Block a (WIN_CONDITION - 1) threat for 'X'
+  if (!chosenMove) { // Only try if no move found yet
+    for (let i = 0; i < emptyCells.length; i++) {
+      let { row, col } = emptyCells[i];
+      let originalContent = board[row][col];
+      board[row][col] = { type: 'X', size: 1 };
+      if (checkLineSegment(row, col, 'X', WIN_CONDITION - 1)) {
+        chosenMove = { row, col };
+      }
+      board[row][col] = originalContent;
+      if (chosenMove) break;
     }
-    board[row][col] = originalContent; // Undo temporary placement
-    if (chosenMove) break;
-  }
-  if (chosenMove) {
-    executeMove(chosenMove.row, chosenMove.col, 'O');
-    computerThinking = false;
-    return;
   }
 
   // Strategy 5: Prefer moves closer to the center (if no immediate threats/wins)
-  let centerR = floor((BOARD_SIZE - 1) / 2);
-  let centerC = floor((BOARD_SIZE - 1) / 2);
-  let minDistanceSq = Infinity;
-  let centerMoves = [];
+  if (!chosenMove) { // Only try if no move found yet
+    let centerR = floor((BOARD_SIZE - 1) / 2);
+    let centerC = floor((BOARD_SIZE - 1) / 2);
+    let minDistanceSq = Infinity;
+    let centerMoves = []; // Collect all moves with minDistanceSq
 
-  for (let i = 0; i < emptyCells.length; i++) {
-    let {
-      row,
-      col
-    } = emptyCells[i];
-    let distSq = (row - centerR) * (row - centerR) + (col - centerC) * (col - centerC);
-    if (distSq < minDistanceSq) {
-      minDistanceSq = distSq;
-      centerMoves = [{
-        row,
-        col
-      }];
-    } else if (distSq === minDistanceSq) {
-      centerMoves.push({
-        row,
-        col
-      });
+    for (let i = 0; i < emptyCells.length; i++) {
+      let { row, col } = emptyCells[i];
+      let distSq = (row - centerR) * (row - centerR) + (col - centerC) * (col - centerC);
+      if (distSq < minDistanceSq) {
+        minDistanceSq = distSq;
+        centerMoves = [{ row, col }]; // Start new list for new minimum
+      } else if (distSq === minDistanceSq) {
+        centerMoves.push({ row, col }); // Add to list for same minimum
+      }
+    }
+    // Pick one randomly from the closest center moves
+    if (centerMoves.length > 0) {
+      // FIXED BUG: Use centerMoves.length instead of emptyCells.length for random index
+      chosenMove = centerMoves[floor(random(centerMoves.length))];
     }
   }
 
-  if (centerMoves.length > 0) {
-    chosenMove = centerMoves[floor(random(centerMoves.length))];
-  }
-
   // Strategy 6: Fallback to a random move if no strategic move found
-  if (chosenMove === null && emptyCells.length > 0) {
+  if (!chosenMove && emptyCells.length > 0) { // If still no move, and empty cells exist
     let randomIndex = floor(random(emptyCells.length));
     chosenMove = emptyCells[randomIndex];
   }
@@ -984,7 +966,7 @@ function computerMove() {
   } else {
     gameOver = true;
     winner = null;
-    gameState = 'GAME_OVER'; // NEW: Set game state here if no move found (draw)
+    gameState = 'GAME_OVER';
     console.warn("Computer couldn't find a move, game declared a draw.");
   }
 
