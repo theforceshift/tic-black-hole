@@ -15,6 +15,7 @@
 
 
 
+
 // Global Black Hole parameters - Feel free to tweak these values!
 let blackHoleSwallowRadius = 1.1; // Radius in cell units for swallowing other pawns (base size)
 let BLACK_HOLE_MAX_SIZE_MULTIPLIER = 10; // Black hole wins if its size reaches this value (e.g., 8 * default size 1 = 8)
@@ -65,6 +66,8 @@ let bhSizeWinPending = false; // Flag to indicate if 'O' has won by size, but an
 // Main game state to control scene flow
 let gameState = 'INTRO'; // 'INTRO', 'PLAYING', 'GAME_OVER'
 
+// Mobile breakpoint for responsive text sizing
+const MOBILE_BREAKPOINT_WIDTH = 600; // Define what constitutes a "mobile" width
 
 // Store black hole positions and their current sizes/rotations/wiggle for efficient iteration
 let blackHolePositions = []; // [{row, col, size, rotation, wiggleXOffset, wiggleYOffset}]
@@ -143,11 +146,33 @@ function draw() {
     case 'INTRO':
       drawBoard(); // Show the sparkling grid
       textAlign(CENTER, CENTER); // Center text both horizontally and vertically
-      textSize(24);
       fill(255);
-      text("Play your best tic-tac-toe game and try to avoid the black holes.", BOARD_SIZE * cellSize / 2, BOARD_SIZE * cellSize / 2 - 40);
-      textSize(16);
-      text("Press anywhere to continue.", BOARD_SIZE * cellSize / 2, BOARD_SIZE * cellSize / 2 + 10);
+
+      let introMainTextSize = 24;
+      let introPromptTextSize = 16;
+      let introLine1YOffset = -40; // Default offset
+      let introLine2YOffset = -15; // Offset for second line if split
+      let introPromptYOffset = 10;  // Default offset
+
+      // Adjust text size and add line break for mobile screens
+      if (width < MOBILE_BREAKPOINT_WIDTH) {
+        introMainTextSize = 14; // Smaller for mobile
+        introPromptTextSize = 12; // Smaller for mobile
+        introLine1YOffset = -30; // Adjust for smaller text
+        introLine2YOffset = -5;  // Adjusted second line offset
+        introPromptYOffset = 20; // Adjusted prompt offset
+      }
+
+      textSize(introMainTextSize);
+      if (width < MOBILE_BREAKPOINT_WIDTH) {
+        // Split the main message into two lines for mobile
+        text("Play your best tic-tac-toe game and", BOARD_SIZE * cellSize / 2, BOARD_SIZE * cellSize / 2 + introLine1YOffset);
+        text("try to avoid the black holes.", BOARD_SIZE * cellSize / 2, BOARD_SIZE * cellSize / 2 + introLine2YOffset);
+      } else {
+        text("Play your best tic-tac-toe game and try to avoid the black holes.", BOARD_SIZE * cellSize / 2, BOARD_SIZE * cellSize / 2 + introLine1YOffset);
+      }
+      textSize(introPromptTextSize);
+      text("Press anywhere to continue.", BOARD_SIZE * cellSize / 2, BOARD_SIZE * cellSize / 2 + introPromptYOffset);
       break;
 
     case 'PLAYING':
@@ -201,61 +226,87 @@ function draw() {
         const line3 = "26,000 light-years from Earth.";
         const clickPrompt = "Click to Play Again";
 
-        const messageTextSize = 16;
-        const clickTextSize = 12;
-        const lineSpacing = messageTextSize * 1.2; // Spacing between tops of main message lines
-        const gapBeforeClickPrompt = 20; // Gap between last main message line and click prompt
+        let messageTextSizeBase = 16;
+        let clickTextSizeBase = 12;
 
-        // Calculate total height of the message block
+        let currentMessageTextSize = messageTextSizeBase;
+        let currentClickTextSize = clickTextSizeBase;
+
+        if (width < MOBILE_BREAKPOINT_WIDTH) {
+          currentMessageTextSize = 12; // Smaller for mobile
+          currentClickTextSize = 10; // Smaller for mobile
+        }
+
+        const lineSpacing = currentMessageTextSize * 1.4; // Slightly increased line spacing for better readability if text is smaller
+        const gapBeforeClickPrompt = 20;
+
         const totalMessageBlockHeight =
-          messageTextSize + // Height of line 1
-          (lineSpacing - messageTextSize) + messageTextSize + // Height of line 2 + space for it
-          (lineSpacing - messageTextSize) + messageTextSize + // Height of line 3 + space for it
+          currentMessageTextSize + // Height of line 1
+          (lineSpacing - currentMessageTextSize) + currentMessageTextSize + // Height of line 2 + space for it
+          (lineSpacing - currentMessageTextSize) + currentMessageTextSize + // Height of line 3 + space for it
           gapBeforeClickPrompt + // Gap
-          clickTextSize; // Height of click prompt
+          currentClickTextSize; // Height of click prompt
 
         // Calculate the starting Y for the entire block to be centered
         let startY = boardCenterY - totalMessageBlockHeight / 2;
 
-        textSize(messageTextSize);
+        textSize(currentMessageTextSize);
         text(line1, boardCenterX, startY);
         text(line2, boardCenterX, startY + lineSpacing);
         text(line3, boardCenterX, startY + 2 * lineSpacing);
 
-        textSize(clickTextSize);
+        textSize(currentClickTextSize);
         text(clickPrompt, boardCenterX, startY + 3 * lineSpacing + gapBeforeClickPrompt);
 
       } else if (winner === 'X') {
         const winMessage = `${winner} Wins!`;
         const clickPrompt = "Click to Play Again";
 
-        const winMessageTextSize = 32;
-        const clickTextSize = 20;
+        let winMessageTextSizeBase = 32;
+        let clickTextSizeBase = 20;
+
+        let currentWinMessageTextSize = winMessageTextSizeBase;
+        let currentClickTextSize = clickTextSizeBase;
+
+        if (width < MOBILE_BREAKPOINT_WIDTH) {
+          currentWinMessageTextSize = 24; // Smaller for mobile
+          currentClickTextSize = 16; // Smaller for mobile
+        }
+
         const gapBetweenMessages = 20;
 
-        const totalMessageBlockHeight = winMessageTextSize + gapBetweenMessages + clickTextSize;
+        const totalMessageBlockHeight = currentWinMessageTextSize + gapBetweenMessages + currentClickTextSize;
         let startY = boardCenterY - totalMessageBlockHeight / 2;
 
-        textSize(winMessageTextSize);
+        textSize(currentWinMessageTextSize);
         text(winMessage, boardCenterX, startY);
-        textSize(clickTextSize);
-        text(clickPrompt, boardCenterX, startY + winMessageTextSize + gapBetweenMessages);
+        textSize(currentClickTextSize);
+        text(clickPrompt, boardCenterX, startY + currentWinMessageTextSize + gapBetweenMessages);
 
       } else { // It's a draw
         const drawMessage = "It's a Draw!";
         const clickPrompt = "Click to Play Again";
 
-        const drawMessageTextSize = 32;
-        const clickTextSize = 20;
+        let drawMessageTextSizeBase = 32;
+        let clickTextSizeBase = 20;
+
+        let currentDrawMessageTextSize = drawMessageTextSizeBase;
+        let currentClickTextSize = clickTextSizeBase;
+
+        if (width < MOBILE_BREAKPOINT_WIDTH) {
+          currentDrawMessageTextSize = 24; // Smaller for mobile
+          currentClickTextSize = 16; // Smaller for mobile
+        }
+
         const gapBetweenMessages = 20;
 
-        const totalMessageBlockHeight = drawMessageTextSize + gapBetweenMessages + clickTextSize;
+        const totalMessageBlockHeight = currentDrawMessageTextSize + gapBetweenMessages + currentClickTextSize;
         let startY = boardCenterY - totalMessageBlockHeight / 2;
 
-        textSize(drawMessageTextSize);
+        textSize(currentDrawMessageTextSize);
         text(drawMessage, boardCenterX, startY);
-        textSize(clickTextSize);
-        text(clickPrompt, boardCenterX, startY + drawMessageTextSize + gapBetweenMessages);
+        textSize(currentClickTextSize);
+        text(clickPrompt, boardCenterX, startY + currentDrawMessageTextSize + gapBetweenMessages);
       }
       break;
   }
@@ -269,7 +320,9 @@ function draw() {
 function drawBoard() {
   noStroke(); // No outline for dots
 
+  // CORRECTED: Loop condition changed from 'r => BOARD_SIZE' to 'r <= BOARD_SIZE'
   for (let r = 0; r <= BOARD_SIZE; r++) {
+    // CORRECTED: Loop condition changed from 'c => BOARD_SIZE' to 'c <= BOARD_SIZE'
     for (let c = 0; c <= BOARD_SIZE; c++) {
       let x = c * cellSize;
       let y = r * cellSize;
@@ -1032,6 +1085,7 @@ function windowResized() {
     // The message drawing in INTRO state already uses board dimensions, so it will re-center.
   }
 }
+
 
 
 
