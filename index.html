@@ -14,9 +14,6 @@
     <script>
 
 
-
-
-
 // Global Black Hole parameters - Feel free to tweak these values!
 let blackHoleSwallowRadius = 1.1; // Radius in cell units for swallowing other pawns (base size)
 let BLACK_HOLE_MAX_SIZE_MULTIPLIER = 10; // Black hole wins if its size reaches this value (e.g., 8 * default size 1 = 8)
@@ -50,6 +47,9 @@ let bhDotShrinkMagnitude = 0.8; // How much dots shrink (0.0 = no shrink, 1.0 = 
 // Grid dot colors for starry night effect
 let gridStarColors; // Array to hold the chosen colors
 let gridDotColorChoices; // 2D array to store a color index for each dot
+
+// --- MODIFIED: X Pawn Color Constant declaration only ---
+let X_PAWN_COLOR; // Declare globally, assign in setup()
 
 
 // Game state variables
@@ -92,6 +92,9 @@ function setup() {
     color(0, 0, 255),      // Blue
     color(255, 255, 255)   // White
   ];
+  // --- MODIFIED: Initialize X_PAWN_COLOR here ---
+  X_PAWN_COLOR = color(255); // Default white. Change this to any p5.js color you like! E.g., color(0, 255, 0) for green.
+
   initializeGame(); // Initialize the board and grid dots, but don't start gameplay
   gameState = 'INTRO'; // Set initial state to intro
 }
@@ -470,7 +473,7 @@ function drawMarks() {
 
             textSize(cellSize * xPawnSizeMultiplier);
             noStroke();
-            fill(255);
+            fill(X_PAWN_COLOR); // --- Using X_PAWN_COLOR ---
             text('✦', x, y);
           } else if (cellContent.type === 'O') {
             let bhSize = cellContent.size;
@@ -763,6 +766,15 @@ function handleInput(inputX, inputY) {
       // Ensure the touched/clicked cell is valid and empty (null or size 0 black hole)
       if (row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE &&
          (board[row][col] === null || (board[row][col].type === 'O' && board[row][col].size <= 0))) {
+
+        // --- Haptic feedback for human 'X' player on mobile ---
+        // Check if it's the human player's turn ('X')
+        // Check if the browser supports the Vibration API (`navigator.vibrate`)
+        // Check if the device likely supports touch events (indirectly suggests a mobile device)
+        if (currentPlayer === 'X' && typeof navigator.vibrate === 'function' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)) {
+            navigator.vibrate(50); // Vibrate for 50ms
+        }
+
         // Human player makes a move
         executeMove(row, col, currentPlayer);
 
@@ -1089,8 +1101,6 @@ function windowResized() {
     // The message drawing in INTRO state already uses board dimensions, so it will re-center.
   }
 }
-
-
 
 
 
