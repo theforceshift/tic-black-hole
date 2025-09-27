@@ -14,6 +14,7 @@
     <script>
 
 
+
 // Global Black Hole parameters - Feel free to tweak these values!
 let blackHoleSwallowRadius = 1.1; // Radius in cell units for swallowing other pawns (base size)
 let BLACK_HOLE_MAX_SIZE_MULTIPLIER = 10; // Black hole wins if its size reaches this value (e.g., 8 * default size 1 = 8)
@@ -642,11 +643,13 @@ function mousePressed() {
 }
 
 /**
- * Handles touch input by calling the main input handler.
+ * Handles touch input by calling the main input handler, using the first touch point.
  */
 function touchStarted() {
-  // Use touchX, touchY for touch input
-  handleInput(touchX, touchY);
+  // Ensure there's at least one touch
+  if (touches.length > 0) {
+    handleInput(touches[0].x, touches[0].y); // Use touches[0].x and touches[0].y
+  }
   return false; // Prevent default browser behavior (e.g., scrolling, zooming)
 }
 
@@ -1029,6 +1032,7 @@ function windowResized() {
     // The message drawing in INTRO state already uses board dimensions, so it will re-center.
   }
 }
+
 
 
     </script>
