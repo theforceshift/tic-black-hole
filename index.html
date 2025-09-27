@@ -13,6 +13,7 @@
 <body>
     <script>
 
+
 // Global Black Hole parameters - Feel free to tweak these values!
 let blackHoleSwallowRadius = 1.1; // Radius in cell units for swallowing other pawns (base size)
 let BLACK_HOLE_MAX_SIZE_MULTIPLIER = 10; // Black hole wins if its size reaches this value (e.g., 8 * default size 1 = 8)
@@ -636,6 +637,25 @@ function updateBlackHoles() {
  * Now controls transitions between game states.
  */
 function mousePressed() {
+  // Use mouseX, mouseY for mouse input
+  handleInput(mouseX, mouseY);
+}
+
+/**
+ * Handles touch input by calling the main input handler.
+ */
+function touchStarted() {
+  // Use touchX, touchY for touch input
+  handleInput(touchX, touchY);
+  return false; // Prevent default browser behavior (e.g., scrolling, zooming)
+}
+
+/**
+ * Central function to handle both mouse and touch input.
+ * @param {number} inputX - The x-coordinate of the mouse or touch.
+ * @param {number} inputY - The y-coordinate of the mouse or touch.
+ */
+function handleInput(inputX, inputY) {
   if (gameState === 'INTRO') {
     gameState = 'PLAYING';
     // If computer (O) is the current player, trigger its first move
@@ -665,22 +685,22 @@ function mousePressed() {
       return;
     }
 
-    // Calculate board offset to translate mouse coordinates
+    // Calculate board offset to translate mouse/touch coordinates
     let offsetX = (width - BOARD_SIZE * cellSize) / 2;
     let offsetY = (height - BOARD_SIZE * cellSize) / 2;
 
-    // Adjust mouse coordinates relative to the board's top-left corner
-    let mouseXOnBoard = mouseX - offsetX;
-    let mouseYOnBoard = mouseY - offsetY;
+    // Adjust input coordinates relative to the board's top-left corner
+    let inputXOnBoard = inputX - offsetX;
+    let inputYOnBoard = inputY - offsetY;
 
-    // Check if the click was within the board boundaries
-    if (mouseXOnBoard > 0 && mouseXOnBoard < BOARD_SIZE * cellSize &&
-      mouseYOnBoard > 0 && mouseYOnBoard < BOARD_SIZE * cellSize) {
+    // Check if the input was within the board boundaries
+    if (inputXOnBoard > 0 && inputXOnBoard < BOARD_SIZE * cellSize &&
+      inputYOnBoard > 0 && inputYOnBoard < BOARD_SIZE * cellSize) {
 
-      let col = floor(mouseXOnBoard / cellSize);
-      let row = floor(mouseYOnBoard / cellSize);
+      let col = floor(inputXOnBoard / cellSize);
+      let row = floor(inputYOnBoard / cellSize);
 
-      // Ensure the clicked cell is valid and empty (null or size 0 black hole)
+      // Ensure the touched/clicked cell is valid and empty (null or size 0 black hole)
       if (row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE &&
          (board[row][col] === null || (board[row][col].type === 'O' && board[row][col].size <= 0))) {
         // Human player makes a move
@@ -998,7 +1018,7 @@ function windowResized() {
       setTimeout(computerMove, computerMoveDelay);
     } else if (gameState === 'GAME_OVER') {
       // If we resized during GAME_OVER, the game has been reset by initializeGame().
-      // It will transition back to PLAYING on next click, as per mousePressed logic.
+      // It will transition back to PLAYING on next click, as per handleInput logic.
       // So no need to re-trigger computerMove here if it was GAME_OVER.
     }
 
@@ -1009,6 +1029,7 @@ function windowResized() {
     // The message drawing in INTRO state already uses board dimensions, so it will re-center.
   }
 }
+
 
     </script>
 </body>
