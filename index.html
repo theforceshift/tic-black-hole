@@ -16,6 +16,7 @@
 
 
 
+
 // Global Black Hole parameters - Feel free to tweak these values!
 let blackHoleSwallowRadius = 1.1; // Radius in cell units for swallowing other pawns (base size)
 let BLACK_HOLE_MAX_SIZE_MULTIPLIER = 10; // Black hole wins if its size reaches this value (e.g., 8 * default size 1 = 8)
@@ -320,9 +321,7 @@ function draw() {
 function drawBoard() {
   noStroke(); // No outline for dots
 
-  // CORRECTED: Loop condition changed from 'r => BOARD_SIZE' to 'r <= BOARD_SIZE'
   for (let r = 0; r <= BOARD_SIZE; r++) {
-    // CORRECTED: Loop condition changed from 'c => BOARD_SIZE' to 'c <= BOARD_SIZE'
     for (let c = 0; c <= BOARD_SIZE; c++) {
       let x = c * cellSize;
       let y = r * cellSize;
@@ -464,7 +463,12 @@ function drawMarks() {
           let y = r * cellSize + cellSize / 2;
 
           if (cellContent.type === 'X') {
-            textSize(cellSize * 0.6);
+            let xPawnSizeMultiplier = 0.6; // Default size multiplier for 'X'
+            if (width < MOBILE_BREAKPOINT_WIDTH) {
+              xPawnSizeMultiplier = 0.8; // Increased size for mobile
+            }
+
+            textSize(cellSize * xPawnSizeMultiplier);
             noStroke();
             fill(255);
             text('✦', x, y);
@@ -1085,6 +1089,7 @@ function windowResized() {
     // The message drawing in INTRO state already uses board dimensions, so it will re-center.
   }
 }
+
 
 
 
